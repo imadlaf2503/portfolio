@@ -6,71 +6,81 @@ import { getAllDocumentsContent } from "@/lib/documentLoader";
 const model = new ChatGroq({
   apiKey: process.env.GROQ_API_KEY,
   model: "llama-3.3-70b-versatile",
-  temperature: 0.1, // Baissé à 0.1 pour un maximum de fidélité aux textes
+  temperature: 0.1, // Précision maximale, zéro divagation.
 });
 
-const TEMPLATE = `
-Tu es l'assistant strictement professionnel d'Abdallah Imad Lafendi. 
-Ton objectif est de fournir des informations EXACTES basées uniquement sur les extraits fournis.
+/**
+ * PROMPT SYSTÈME OPTIMISÉ (FULL STRUCTURE)
+ * Ce prompt définit l'identité, les sources de données et les règles de logique.
+ */
+const SYSTEM_PROMPT = `
+# IDENTITÉ ET MISSION
+Tu es l'Expert-IA Personnel d'Abdallah Imad Lafendi. Ton rôle est de répondre aux recruteurs et visiteurs en utilisant EXCLUSIVEMENT les documents fournis (CV et Rapports).
 
-RÈGLES CRITIQUES DE RÉPONSE :
-1. NE MÉLANGE PAS LES PROJETS : Si on pose une question sur le CHU de Lille, n'utilise pas les technologies du projet IAG-CARDIO (comme FastAPI, RAG ou Agents) SAUF si elles sont explicitement écrites dans l'extrait concernant le CHU.
-2. PAS D'INVENTION : Si l'extrait ne mentionne pas un outil, une date ou une mission spécifique, réponds : "D'après les rapports disponibles, cette précision n'est pas mentionnée."
-3. RIGUEUR : Ne dis pas "J'ai utilisé" mais "Abdallah a utilisé" ou "Le rapport mentionne l'utilisation de...".
-4. SOURCE : Si possible, précise de quel document vient l'info (ex: "D'après son rapport de stage au CHU...").
+# SOURCES DE DONNÉES DISPONIBLES
+1. **CV :** État civil, soft skills, technologies (FastAPI, Next.js, RAG, etc.), et résumé du parcours.
+2. **Rapport IAG-CARDIO :** Détails sur l'IA appliquée à la cardiologie, modèles de prédiction, et architectures.
+3. **Rapport WASSELNI :** Détails sur l'application de transport, gestion des flux et backend.
+4. **Rapport CHU DE LILLE :** Stage en milieu hospitalier, optimisation des blocs opératoires, analyse de données de santé.
+5. **Parcours Académique :** Centrale Lille (Diplôme d'Ingénieur), Université de Lille (Master MIASHS).
 
-CONTEXTE EXTRAIT DES DOCUMENTS D'ABDALLAH :
+# RÈGLES DE RÉPONSE (STRICTES)
+- **Véracité :** Si une information (ex: un modèle spécifique comme Random Forest ou CNN) est présente dans un rapport, cite-la précisément. Si elle n'y est pas, ne l'invente jamais.
+- **Contexte Académique :** Ne confonds pas "Parcours Patient" (santé) et "Parcours Académique" (études). 
+- **Compétences :** Relie toujours une compétence technique à un projet concret mentionné dans les rapports.
+- **Langue :** Réponds toujours en Français, de manière concise, élégante et professionnelle.
+- **Citations :** Utilise des expressions comme "Selon son rapport sur..." ou "Son CV mentionne...".
+
+# DIRECTIVES EN CAS D'ABSENCE D'INFORMATION
+Si la question porte sur un sujet non couvert par les documents (ex: ses hobbies non écrits, sa vie privée), réponds : 
+"Je ne dispose pas de cette information spécifique dans les rapports de projets ou le CV d'Abdallah. Je vous invite à le contacter directement pour plus de précisions."
+
+# CONTEXTE FOURNI :
 {context}
 
-QUESTION DU VISITEUR : {question}
-ASSISTANT (Réponse précise et sourcée) :`;
+# QUESTION DU VISITEUR :
+{question}
+
+# RÉPONSE DE L'EXPERT :`;
 
 export async function POST(req: Request) {
   try {
     const { messages } = await req.json();
     const userQuestion = messages[messages.length - 1].content;
 
-    // 1. Récupération du contenu (via le cache mémoire du loader)
+    // 1. Récupération du gros bloc de texte (depuis la RAM)
     const fullContext = await getAllDocumentsContent();
-    
-    // 2. FILTRAGE RAG OPTIMISÉ
-    const questionLower = userQuestion.toLowerCase();
-    const keywords = questionLower
-      .replace(/[?.,!]/g, "")
-      .split(' ')
-      .filter(w => w.length > 3);
 
-    // Découpage en paragraphes et nettoyage des espaces inutiles
-    const paragraphs = fullContext.split('\n').map(p => p.trim()).filter(p => p.length > 40);
+    // 2. LOGIQUE DE FENÊTRE DE CONTEXTE (SMART SEARCH)
+    // On divise par paragraphes
+    const paragraphs = fullContext.split('\n').filter(p => p.trim().length > 15);
     
-    let relevantParagraphs = paragraphs.filter(para => {
+    // Mots-clés étendus pour couvrir les synonymes
+    const searchTerms = userQuestion.toLowerCase().replace(/[?.,!]/g, "").split(' ');
+    const expandedTerms = [...searchTerms, "formation", "études", "modèle", "algorithme", "résultat", "technologie"];
+
+    // On sélectionne les paragraphes les plus denses en informations pertinentes
+    let matchedParagraphs = paragraphs.filter(para => {
       const pLower = para.toLowerCase();
-      
-      // Priorisation contextuelle : Si on parle du CHU, on évite de prendre les paragraphes du CV
-      if (questionLower.includes("chu") && !pLower.includes("chu") && !pLower.includes("lille")) {
-          return false;
-      }
-      
-      return keywords.some(key => pLower.includes(key));
+      return expandedTerms.some(term => term.length > 3 && pLower.includes(term));
     });
 
-    // 3. CONSTRUCTION DU CONTEXTE FINAL
-    // On limite à 12 paragraphes max pour éviter que l'IA ne se mélange les pinceaux
-    let contextForAi = relevantParagraphs.length > 0 
-      ? relevantParagraphs.slice(0, 12).join('\n\n---\n\n')
-      : fullContext.substring(0, 5000); // Fallback sur le début (souvent le CV)
+    // 3. ASSEMBLAGE DU CONTEXTE (Priorité : CV au début + Extraits pertinents)
+    // On prend les 4000 premiers caractères (généralement le CV) + les 15 meilleurs paragraphes trouvés
+    const cvHeader = fullContext.substring(0, 4000);
+    const bodyContext = matchedParagraphs.slice(0, 20).join('\n\n---\n\n');
+    
+    const finalContext = `${cvHeader}\n\n[EXTRAITS DE PROJETS CIBLÉS]\n${bodyContext}`;
 
-    console.log("--- DEBUG RAG ---");
-    console.log("Mots-clés détectés :", keywords);
-    console.log("Paragraphes pertinents trouvés :", relevantParagraphs.length);
-    console.log("Volume envoyé (caractères) :", contextForAi.length);
+    console.log("--- ENGINE LOG ---");
+    console.log("Tokens envoyés (estimés) :", Math.round(finalContext.length / 4));
 
-    // 4. CHAÎNE LANGCHAIN
-    const prompt = PromptTemplate.fromTemplate(TEMPLATE);
+    // 4. APPEL AU MODÈLE
+    const prompt = PromptTemplate.fromTemplate(SYSTEM_PROMPT);
     const chain = prompt.pipe(model);
 
     const result = await chain.invoke({
-      context: contextForAi,
+      context: finalContext,
       question: userQuestion,
     });
 
@@ -79,9 +89,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ content: responseContent });
 
   } catch (error: any) {
-    console.error("Erreur Chat API:", error);
+    console.error("Critical API Error:", error);
     return NextResponse.json(
-      { error: "L'assistant rencontre une difficulté technique." }, 
+      { error: "Désolé, une erreur technique empêche l'accès aux rapports." }, 
       { status: 500 }
     );
   }
