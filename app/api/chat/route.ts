@@ -3,6 +3,9 @@ import { PromptTemplate } from "@langchain/core/prompts";
 import { NextResponse } from "next/server";
 import { getAllDocumentsContent } from "@/lib/documentLoader";
 
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 const model = new ChatGroq({
   apiKey: process.env.GROQ_API_KEY,
   model: "llama-3.3-70b-versatile",
