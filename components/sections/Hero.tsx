@@ -36,7 +36,7 @@ export default function Hero() {
   return (
     <section className="flex flex-col items-center justify-center min-h-[90vh] px-6 text-center relative overflow-hidden">
       {/* Modification : z-50 et position relative forcée pour iOS */}
-      <div className="h-44 mb-2 flex items-center justify-center z-[50] relative"> 
+      <div className="h-52 mb-4 mt-20 flex items-center justify-center z-[50] relative"> 
         <AnimatePresence>
           {showAvatar && (
             <motion.div
