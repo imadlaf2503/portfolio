@@ -120,7 +120,7 @@ export default function Projects() {
           {/* Bulle de texte */}
           <div className="absolute -top-16 right-0 bg-[#0a0a0a] border border-white/10 px-4 py-2 rounded-2xl rounded-tr-none shadow-xl whitespace-nowrap">
             <p className="text-white text-xs font-medium">
-              Alors ! vous pensez quoi ? 😂
+              Alors, qu'en pensez-vous ?  😂
             </p>
             <div className="absolute -bottom-1.5 right-0 w-3 h-3 bg-[#0a0a0a] border-r border-b border-white/10 rotate-45"/>
           </div>
