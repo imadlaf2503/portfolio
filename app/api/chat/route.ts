@@ -1,57 +1,87 @@
-import { ChatOpenAI } from "@langchain/openai";
+import { ChatGroq } from "@langchain/groq";
 import { PromptTemplate } from "@langchain/core/prompts";
 import { NextResponse } from "next/server";
+import { getAllDocumentsContent } from "@/lib/documentLoader";
 
-// 1. Initialisation du modèle avec LangChain
-const model = new ChatOpenAI({
-  openAIApiKey: process.env.OPENAI_API_KEY,
-  modelName: "gpt-4o-mini", // Très rapide et efficace
-  temperature: 0.7,
+const model = new ChatGroq({
+  apiKey: process.env.GROQ_API_KEY,
+  model: "llama-3.3-70b-versatile",
+  temperature: 0.1, // Baissé à 0.1 pour un maximum de fidélité aux textes
 });
 
-// 2. Définition du Template de réponse (Le cerveau de l'assistant)
 const TEMPLATE = `
-Tu es l'assistant virtuel expert d'Abdallah Imad Lafendi. 
-Ton rôle est de répondre aux recruteurs et aux visiteurs de son portfolio de manière professionnelle, chaleureuse et concise.
+Tu es l'assistant strictement professionnel d'Abdallah Imad Lafendi. 
+Ton objectif est de fournir des informations EXACTES basées uniquement sur les extraits fournis.
 
-Voici les informations clés sur Abdallah :
-- ÉDUCATION : Étudiant en G3 (Master 2) à l'École Centrale de Lille, parcours IA Engineer.
-- STAGE ACTUEL : VYV 3 IT (Secteur Santé & IT), spécialisé dans les solutions numériques pour la santé.
-- PROJETS PHARES : 
-    * IAG-CARDIO (Diagnostic ECG avec IA & XAI)
-    * WASSELNI (Application mobile de transport)
-- COMPÉTENCES : LLM, RAG, Python, Next.js, Deep Learning.
+RÈGLES CRITIQUES DE RÉPONSE :
+1. NE MÉLANGE PAS LES PROJETS : Si on pose une question sur le CHU de Lille, n'utilise pas les technologies du projet IAG-CARDIO (comme FastAPI, RAG ou Agents) SAUF si elles sont explicitement écrites dans l'extrait concernant le CHU.
+2. PAS D'INVENTION : Si l'extrait ne mentionne pas un outil, une date ou une mission spécifique, réponds : "D'après les rapports disponibles, cette précision n'est pas mentionnée."
+3. RIGUEUR : Ne dis pas "J'ai utilisé" mais "Abdallah a utilisé" ou "Le rapport mentionne l'utilisation de...".
+4. SOURCE : Si possible, précise de quel document vient l'info (ex: "D'après son rapport de stage au CHU...").
 
-INSTRUCTIONS :
-- Si on te pose une question sur ses projets, sois précis.
-- Si tu ne connais pas la réponse, propose au visiteur de contacter Abdallah directement via le bouton "Contact".
-- Ne réponds jamais à des questions qui ne concernent pas Abdallah ou l'IA.
+CONTEXTE EXTRAIT DES DOCUMENTS D'ABDALLAH :
+{context}
 
-Question du visiteur : {input}
-Assistant :`;
+QUESTION DU VISITEUR : {question}
+ASSISTANT (Réponse précise et sourcée) :`;
 
 export async function POST(req: Request) {
   try {
     const { messages } = await req.json();
-    
-    // On récupère la dernière question de l'utilisateur
-    const lastUserMessage = messages[messages.length - 1].content;
+    const userQuestion = messages[messages.length - 1].content;
 
-    // 3. Création de la chaîne de prompt
+    // 1. Récupération du contenu (via le cache mémoire du loader)
+    const fullContext = await getAllDocumentsContent();
+    
+    // 2. FILTRAGE RAG OPTIMISÉ
+    const questionLower = userQuestion.toLowerCase();
+    const keywords = questionLower
+      .replace(/[?.,!]/g, "")
+      .split(' ')
+      .filter(w => w.length > 3);
+
+    // Découpage en paragraphes et nettoyage des espaces inutiles
+    const paragraphs = fullContext.split('\n').map(p => p.trim()).filter(p => p.length > 40);
+    
+    let relevantParagraphs = paragraphs.filter(para => {
+      const pLower = para.toLowerCase();
+      
+      // Priorisation contextuelle : Si on parle du CHU, on évite de prendre les paragraphes du CV
+      if (questionLower.includes("chu") && !pLower.includes("chu") && !pLower.includes("lille")) {
+          return false;
+      }
+      
+      return keywords.some(key => pLower.includes(key));
+    });
+
+    // 3. CONSTRUCTION DU CONTEXTE FINAL
+    // On limite à 12 paragraphes max pour éviter que l'IA ne se mélange les pinceaux
+    let contextForAi = relevantParagraphs.length > 0 
+      ? relevantParagraphs.slice(0, 12).join('\n\n---\n\n')
+      : fullContext.substring(0, 5000); // Fallback sur le début (souvent le CV)
+
+    console.log("--- DEBUG RAG ---");
+    console.log("Mots-clés détectés :", keywords);
+    console.log("Paragraphes pertinents trouvés :", relevantParagraphs.length);
+    console.log("Volume envoyé (caractères) :", contextForAi.length);
+
+    // 4. CHAÎNE LANGCHAIN
     const prompt = PromptTemplate.fromTemplate(TEMPLATE);
     const chain = prompt.pipe(model);
 
-    // 4. Exécution de la chaîne
-    const response = await chain.invoke({
-      input: lastUserMessage,
+    const result = await chain.invoke({
+      context: contextForAi,
+      question: userQuestion,
     });
 
-    return NextResponse.json({ content: response.content });
+    const responseContent = typeof result === 'string' ? result : (result as any).content;
+
+    return NextResponse.json({ content: responseContent });
 
   } catch (error: any) {
-    console.error("Erreur LangChain:", error);
+    console.error("Erreur Chat API:", error);
     return NextResponse.json(
-      { error: "Désolé, j'ai un petit souci technique." }, 
+      { error: "L'assistant rencontre une difficulté technique." }, 
       { status: 500 }
     );
   }
