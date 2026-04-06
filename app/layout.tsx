@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-// Import de ton nouveau composant Navbar
 import Navbar from "@/components/layout/Navbar";
+// --- 1. IMPORT DU CHATBOT ---
+import ChatBot from "@/components/ai/ChatBot"; 
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -37,6 +38,11 @@ export default function RootLayout({
         <main className="flex-grow pt-16">
           {children}
         </main>
+
+        {/* --- 2. AFFICHAGE DU CHATBOT --- */}
+        {/* Il est en position 'fixed' dans son propre fichier, 
+            donc il flottera au-dessus du contenu */}
+        <ChatBot />
       </body>
     </html>
   );
